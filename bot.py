@@ -20,6 +20,7 @@ COGS = [
     "cogs.economy",
     "cogs.roblox",
     "cogs.verification",
+    "cogs.perks",
     "cogs.setup",
 ]
 

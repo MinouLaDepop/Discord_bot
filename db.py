@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS link_codes (
     expires REAL NOT NULL
 );
 
+-- VIP : kind = 'discord' (donné par le staff, ident = id Discord)
+--       ou 'roblox' (acheté dans le jeu, ident = id Roblox)
+CREATE TABLE IF NOT EXISTS vip (
+    guild_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    ident INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, kind, ident)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_roblox ON users(guild_id, roblox_id);
 CREATE INDEX IF NOT EXISTS idx_users_level ON users(guild_id, level DESC, xp DESC);
 CREATE INDEX IF NOT EXISTS idx_users_coins ON users(guild_id, coins DESC);

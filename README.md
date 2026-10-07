@@ -15,7 +15,7 @@ Bot en Python (discord.py) avec : modération, accueil + rôles, tickets, écono
 
 Une fois le bot lancé et en ligne, tape **`/setup-serveur`** (réservé aux administrateurs), vérifie le récapitulatif et clique sur **Tout créer**. Le bot crée :
 
-- **Rôles :** 🛡️ Admin, 🔨 Modérateur, 🎧 Support, ✅ Membre, et 3 rôles de notifications (📢 Annonces, 🎉 Événements, 🔔 Mises à jour).
+- **Rôles :** 🛡️ Admin, 🔨 Modérateur, 🎧 Support, 💎 Booster, 👑 VIP, ✅ Membre, et 3 rôles de notifications (📢 Annonces, 🎉 Événements, 🔔 Mises à jour).
 - **Salons :** Accueil (règles + vérification), Informations, Communauté, Hatch a Mutant, Support (tickets), Vocal, Staff (logs) et une catégorie cachée pour les tickets ouverts.
 - **Branchements automatiques :** tickets, vérification, logs de modération, message de bienvenue et annonces du jeu Roblox.
 
@@ -52,6 +52,7 @@ Pour qu'il tourne 24h/24, héberge-le sur un VPS (ou un hébergeur de bots).
 | Tickets | `/ticket-config` `/ticket-panel` `/ticket-ajouter` `/ticket-retirer` |
 | Économie | `/rank` `/classement` `/solde` `/daily` `/travail` `/payer` `/boutique` `/acheter` `/inventaire` `/niveau-role` + admin : `/boutique-ajouter` `/boutique-retirer` `/coins-donner` |
 | Roblox | `/roblox lier` `/roblox delier` `/roblox profil` `/roblox jeu` `/roblox salon` |
+| Avantages | `/vip donner` `/vip retirer` `/vip liste` `/avantages-sync` |
 
 Démarrage conseillé sur le serveur : `/logs`, `/accueil salon`, `/ticket-config` puis `/ticket-panel`, `/roblox salon`.
 
@@ -88,7 +89,16 @@ roblox/           script Lua pour ton jeu
 smoke_test.py     test de démarrage (GitHub le lance à chaque modification)
 ```
 
-## 6. Fiabilité
+## 6. Rôles Booster et VIP
+
+- **💎 Booster** : donné automatiquement dès qu'un membre booste le serveur, retiré quand son boost s'arrête. Si le bot était éteint pendant un boost, il rattrape au démarrage (ou avec `/avantages-sync`).
+- **👑 VIP** : réservé aux joueurs qui paient dans le jeu. Le jeu prévient le bot (`/api/vip`) et le joueur reçoit le rôle sur Discord. S'il n'a pas encore lié son compte (`/roblox lier`), son VIP est gardé de côté et le rôle arrive dès qu'il le lie.
+- `/vip donner @membre` donne le VIP à la main (cadeau, concours...) : ce VIP-là est protégé et ne dépend pas du jeu. `/vip liste` affiche tous les VIP.
+- Les deux rôles sont créés automatiquement s'ils n'existent pas (ou par `/setup-serveur`). Le rôle du bot doit être **au-dessus** d'eux.
+
+**Côté jeu (Roblox Studio)** : dans le script `DiscordBridge` (ServerScriptService), mets l'ID de ton Game Pass VIP dans `VIP_GAMEPASS_ID`. Tout joueur qui possède le pass (acheté avant ou pendant la partie) reçoit alors le rôle. Pour donner ou retirer le VIP depuis tes propres scripts : `_G.DiscordBridge.setVip(player, true)` / `setVip(player, false)`.
+
+## 7. Fiabilité
 
 - Un module qui plante au chargement est isolé : les autres restent en ligne, l'erreur est écrite dans les logs.
 - Si le port de l'API Roblox est déjà pris, le bot démarre quand même (sans l'API).

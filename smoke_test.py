@@ -17,6 +17,7 @@ os.environ["DISCORD_TOKEN"] = ""
 EXPECTED_COMMANDS = {
     "setup-serveur", "verifier", "kick", "ban", "warn", "daily", "travail", "rank",
     "ticket-panel", "panneau-roles", "roblox", "accueil", "verification",
+    "vip", "avantages-sync",
 }
 
 
@@ -58,6 +59,34 @@ async def main():
 
     await db.set_setting(gid, "test", 7)
     check(await db.get_int_setting(gid, "test") == 7, "les réglages sont enregistrés")
+
+    # --- Avantages : VIP donné par le staff ou acheté dans le jeu ---------------------
+    perks = bot.get_cog("Perks")
+    check(perks is not None, "le module avantages est chargé")
+    check(not await perks.vip_wanted(gid, uid), "personne n'est VIP par défaut")
+
+    await db.execute(
+        "INSERT INTO vip(guild_id, kind, ident, created_at) VALUES(?,?,?,?)", (gid, "discord", uid, 1.0)
+    )
+    check(await perks.vip_wanted(gid, uid), "un VIP donné par le staff est reconnu")
+    await db.execute("DELETE FROM vip WHERE guild_id=? AND kind=?", (gid, "discord"))
+    check(not await perks.vip_wanted(gid, uid), "le VIP du staff peut être retiré")
+
+    # Achat dans le jeu AVANT d'avoir lié son compte : le VIP attend la liaison
+    result = await perks.set_roblox_vip(gid, 777, True)
+    check(result == {"linked": False, "applied": False}, "VIP acheté mais compte non lié : mis de côté")
+    check(not await perks.vip_wanted(gid, uid), "le VIP en attente n'est pas donné à n'importe qui")
+
+    await db.execute("UPDATE users SET roblox_id=? WHERE guild_id=? AND user_id=?", (777, gid, uid))
+    check(await perks.vip_wanted(gid, uid), "le VIP en attente arrive dès que le compte est lié")
+    check(uid in await perks.vip_user_ids(gid), "le membre apparaît dans la liste des VIP")
+
+    await db.execute("UPDATE users SET roblox_id=NULL WHERE guild_id=? AND user_id=?", (gid, uid))
+    check(not await perks.vip_wanted(gid, uid), "le VIP ne suit pas le membre s'il délie son compte")
+
+    await db.execute("UPDATE users SET roblox_id=? WHERE guild_id=? AND user_id=?", (777, gid, uid))
+    result = await perks.set_roblox_vip(gid, 777, False)
+    check(result["linked"] and not await perks.vip_wanted(gid, uid), "le VIP du jeu peut être retiré")
 
     await bot.close()
     print("\n🎉 Tout est bon : le bot peut démarrer.")

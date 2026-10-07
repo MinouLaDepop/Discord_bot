@@ -13,12 +13,15 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local CONFIG = {
 	-- Adresse publique de ton bot, SANS slash final (ex: https://mon-bot.exemple.com)
 	BASE_URL = "https://REMPLACE-MOI",
 	-- La MÊME clé que API_KEY dans le fichier .env du bot
 	API_KEY = "REMPLACE-MOI",
+	-- ID du Game Pass « VIP » (celui que les joueurs achètent). 0 = VIP automatique désactivé.
+	VIP_GAMEPASS_ID = 0,
 }
 
 -- Petit canal pour afficher des messages dans le chat du joueur
@@ -75,7 +78,16 @@ function Bridge.giveCoins(player, amount, reason)
 	return nil
 end
 
--- Récupère { linked, coins, level, xp } du joueur
+-- Donne (active = true) ou retire (active = false) le rôle VIP Discord du joueur.
+-- Si le joueur n'a pas encore lié son compte, le VIP est gardé de côté :
+-- le rôle arrivera dès qu'il fera /roblox lier puis /link CODE.
+-- Exemple : _G.DiscordBridge.setVip(player, true)
+function Bridge.setVip(player, active)
+	local data = request("POST", "/api/vip", { robloxId = player.UserId, active = active })
+	return data ~= nil and data.ok == true
+end
+
+-- Récupère { linked, coins, level, xp, vip } du joueur
 function Bridge.getProfile(player)
 	local data = request("GET", "/api/player/" .. player.UserId)
 	return data
@@ -124,6 +136,34 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	linking[player] = nil
+end)
+
+------------------------------------------------------------------
+-- VIP automatique : le joueur qui possède le Game Pass VIP reçoit le rôle Discord
+------------------------------------------------------------------
+local function checkVip(player)
+	if CONFIG.VIP_GAMEPASS_ID == 0 then
+		return
+	end
+	local ok, owns = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, CONFIG.VIP_GAMEPASS_ID)
+	end)
+	if ok and owns then
+		Bridge.setVip(player, true)
+	end
+end
+
+-- À l'arrivée du joueur (couvre ceux qui ont acheté avant, ou pendant que le bot était éteint)
+Players.PlayerAdded:Connect(checkVip)
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(checkVip, player)
+end
+
+-- Juste après un achat en jeu
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+	if wasPurchased and gamePassId == CONFIG.VIP_GAMEPASS_ID then
+		Bridge.setVip(player, true)
+	end
 end)
 
 --[[

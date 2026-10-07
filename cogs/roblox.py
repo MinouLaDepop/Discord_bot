@@ -6,6 +6,7 @@ Le bot ouvre une petite API HTTP que ton jeu Roblox appelle (via HttpService) :
   GET  /api/player/<id>     -> infos Discord/économie du joueur lié
   POST /api/coins           { robloxId, amount, reason } -> ajoute/retire des pièces
   POST /api/event           { title, message, color }   -> poste un embed dans Discord
+  POST /api/vip             { robloxId, active }        -> donne/retire le rôle VIP Discord
 Chaque requête doit contenir l'en-tête  X-API-Key  (la clé du fichier .env).
 """
 import hmac
@@ -58,6 +59,7 @@ class Roblox(commands.Cog):
                 web.get("/api/player/{roblox_id}", self.api_player),
                 web.post("/api/coins", self.api_coins),
                 web.post("/api/event", self.api_event),
+                web.post("/api/vip", self.api_vip),
             ]
         )
         self.runner = web.AppRunner(app)
@@ -125,6 +127,11 @@ class Roblox(commands.Cog):
             return web.json_response({"ok": False, "error": "wrong_account"}, status=403)
 
         await db.ensure_user(row["guild_id"], row["user_id"])
+        # Anciens propriétaires de ce compte Roblox : ils perdent le lien (donc peut-être le VIP)
+        previous = await db.fetchall(
+            "SELECT user_id FROM users WHERE guild_id=? AND roblox_id=? AND user_id!=?",
+            (row["guild_id"], roblox_id, row["user_id"]),
+        )
         # Un compte Roblox ne peut être lié qu'à un seul membre
         await db.execute(
             "UPDATE users SET roblox_id=NULL, roblox_name=NULL WHERE guild_id=? AND roblox_id=?",
@@ -135,6 +142,10 @@ class Roblox(commands.Cog):
             (roblox_id, row["roblox_name"], row["guild_id"], row["user_id"]),
         )
         await db.execute("DELETE FROM link_codes WHERE code=?", (code,))
+        self.bot.dispatch(
+            "roblox_link_changed", row["guild_id"],
+            [row["user_id"], *[r["user_id"] for r in previous]],
+        )
 
         user = self.bot.get_user(row["user_id"])
         if user:
@@ -156,6 +167,8 @@ class Roblox(commands.Cog):
         )
         if not row:
             return web.json_response({"ok": True, "linked": False})
+        perks = self.bot.get_cog("Perks")
+        vip = await perks.vip_wanted(config.GUILD_ID, row["user_id"]) if perks else False
         return web.json_response(
             {
                 "ok": True,
@@ -164,6 +177,7 @@ class Roblox(commands.Cog):
                 "coins": row["coins"],
                 "level": row["level"],
                 "xp": row["xp"],
+                "vip": vip,
             }
         )
 
@@ -206,6 +220,21 @@ class Roblox(commands.Cog):
         )
         await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         return web.json_response({"ok": True})
+
+    async def api_vip(self, request: web.Request):
+        data = await self.read_json(request)
+        try:
+            roblox_id = int(data.get("robloxId"))
+        except (TypeError, ValueError):
+            return web.json_response({"ok": False, "error": "bad_roblox_id"}, status=400)
+        active = data.get("active", True)
+        if not isinstance(active, bool):
+            return web.json_response({"ok": False, "error": "bad_active"}, status=400)
+        perks = self.bot.get_cog("Perks")
+        if perks is None:
+            return web.json_response({"ok": False, "error": "perks_unavailable"}, status=503)
+        result = await perks.set_roblox_vip(config.GUILD_ID, roblox_id, active)
+        return web.json_response({"ok": True, **result})
 
     # --- Appels à l'API publique de Roblox -------------------------------
     async def lookup_user(self, username: str):
@@ -269,6 +298,7 @@ class Roblox(commands.Cog):
             "UPDATE users SET roblox_id=NULL, roblox_name=NULL WHERE guild_id=? AND user_id=?",
             (interaction.guild_id, interaction.user.id),
         )
+        self.bot.dispatch("roblox_link_changed", interaction.guild_id, [interaction.user.id])
         await interaction.response.send_message("✅ Compte Roblox délié.", ephemeral=True)
 
     @roblox.command(name="profil", description="Affiche le profil Roblox d'un membre")

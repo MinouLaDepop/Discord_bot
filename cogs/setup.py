@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+from cogs.perks import PERK_ROLE_SPECS
 from cogs.tickets import OpenTicketView
 from cogs.verification import (
     VerifyView, build_rules_embed, build_verify_embed, generate_word,
@@ -29,6 +30,7 @@ ROLE_SPECS = [
         view_audit_log=True, manage_nicknames=True), True, False),
     ("support", "🎧 Support", 0x3498DB, dict(
         manage_messages=True, moderate_members=True), True, True),
+    *PERK_ROLE_SPECS,  # 💎 Booster et 👑 VIP, juste sous le staff
     ("member", "✅ Membre", 0x2ECC71, {}, False, False),
     ("ping_news", "📢 Annonces", 0x95A5A6, {}, False, True),
     ("ping_events", "🎉 Événements", 0x95A5A6, {}, False, True),
@@ -219,7 +221,7 @@ class Setup(commands.Cog):
         )
         embed.add_field(
             name="Rôles",
-            value="🛡️ Admin · 🔨 Modérateur · 🎧 Support · ✅ Membre · "
+            value="🛡️ Admin · 🔨 Modérateur · 🎧 Support · 💎 Booster · 👑 VIP · ✅ Membre · "
                   "📢 Annonces · 🎉 Événements · 🔔 Mises à jour",
             inline=False,
         )

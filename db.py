@@ -72,7 +72,18 @@ CREATE TABLE IF NOT EXISTS link_codes (
     roblox_name TEXT NOT NULL,
     expires REAL NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_roblox ON users(guild_id, roblox_id);
+CREATE INDEX IF NOT EXISTS idx_users_level ON users(guild_id, level DESC, xp DESC);
+CREATE INDEX IF NOT EXISTS idx_users_coins ON users(guild_id, coins DESC);
+CREATE INDEX IF NOT EXISTS idx_warnings_user ON warnings(guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(guild_id, user_id, closed);
+CREATE INDEX IF NOT EXISTS idx_shop_guild ON shop(guild_id, name);
+CREATE INDEX IF NOT EXISTS idx_link_codes_user ON link_codes(guild_id, user_id);
 """
+
+# Colonnes autorisées pour les cooldowns (évite toute injection SQL)
+COOLDOWN_COLUMNS = ("last_daily", "last_work")
 
 
 class Database:
@@ -84,6 +95,8 @@ class Database:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.execute("PRAGMA journal_mode=WAL")
+        await self.conn.execute("PRAGMA synchronous=NORMAL")  # rapide et sûr avec WAL
+        await self.conn.execute("PRAGMA busy_timeout=5000")    # attend au lieu de planter si la base est occupée
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
 
@@ -132,6 +145,21 @@ class Database:
         return await self.fetchone(
             "SELECT * FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)
         )
+
+    async def claim_cooldown(
+        self, guild_id: int, user_id: int, column: str, cooldown: float, now: float
+    ) -> bool:
+        """Réserve atomiquement une récompense à cooldown (daily, travail...).
+        Retourne False si le cooldown n'est pas fini : empêche de la récupérer
+        deux fois en lançant la commande 2 fois très vite."""
+        if column not in COOLDOWN_COLUMNS:
+            raise ValueError(f"colonne de cooldown inconnue : {column}")
+        await self.ensure_user(guild_id, user_id)
+        cur = await self.execute(
+            f"UPDATE users SET {column}=? WHERE guild_id=? AND user_id=? AND {column}+?<=?",  # noqa: S608
+            (now, guild_id, user_id, cooldown, now),
+        )
+        return cur.rowcount > 0
 
     async def add_coins(self, guild_id: int, user_id: int, amount: int):
         """Ajoute (ou retire) des pièces. Retourne le nouveau solde,

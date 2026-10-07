@@ -1,3 +1,4 @@
+import logging
 import random
 import time
 
@@ -6,6 +7,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+
+log = logging.getLogger("economy")
 
 XP_COOLDOWN = 60          # secondes entre deux gains d'XP
 DAILY_COOLDOWN = 24 * 3600
@@ -27,16 +30,33 @@ def progress_bar(value: int, total: int, size: int = 12) -> str:
 class Economy(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # (serveur, membre) -> heure du dernier gain d'XP. Évite de lire la base à chaque message.
+        self._last_xp: dict[tuple[int, int], float] = {}
+
+    def _cleanup_cache(self, now: float):
+        if len(self._last_xp) > 5000:
+            self._last_xp = {k: t for k, t in self._last_xp.items() if now - t < XP_COOLDOWN}
 
     # --- Gain d'XP en discutant ------------------------------------------
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
+        now = time.time()
+        gid, uid = message.guild.id, message.author.id
+        if now - self._last_xp.get((gid, uid), 0) < XP_COOLDOWN:
+            return  # cooldown en mémoire : aucun accès à la base
+        self._last_xp[(gid, uid)] = now
+        self._cleanup_cache(now)
+        try:
+            await self.give_message_xp(message, now)
+        except Exception:
+            log.exception("Impossible de donner l'XP du message")
+
+    async def give_message_xp(self, message: discord.Message, now: float):
         db = self.bot.db
         gid, uid = message.guild.id, message.author.id
         row = await db.ensure_user(gid, uid)
-        now = time.time()
         if now - row["last_msg"] < XP_COOLDOWN:
             return
 
@@ -178,11 +198,13 @@ class Economy(commands.Cog):
             return await interaction.response.send_message(
                 f"⏳ Reviens <t:{int(ready)}:R> pour ta prochaine récompense.", ephemeral=True
             )
+        if not await db.claim_cooldown(
+            interaction.guild_id, interaction.user.id, "last_daily", DAILY_COOLDOWN, now
+        ):
+            return await interaction.response.send_message(
+                "⏳ Ta récompense quotidienne est déjà récupérée.", ephemeral=True
+            )
         balance = await db.add_coins(interaction.guild_id, interaction.user.id, DAILY_REWARD)
-        await db.execute(
-            "UPDATE users SET last_daily=? WHERE guild_id=? AND user_id=?",
-            (now, interaction.guild_id, interaction.user.id),
-        )
         await interaction.response.send_message(
             f"🎁 Tu reçois **{DAILY_REWARD}** {COIN} ! Solde : **{balance}** {COIN}"
         )
@@ -203,11 +225,13 @@ class Economy(commands.Cog):
             "nourri des mutants au zoo", "nettoyé les enclos", "soigné un mutant malade",
             "couvé des œufs mystérieux", "guidé des visiteurs",
         ]
+        if not await db.claim_cooldown(
+            interaction.guild_id, interaction.user.id, "last_work", WORK_COOLDOWN, now
+        ):
+            return await interaction.response.send_message(
+                "⏳ Tu es déjà au travail, reviens un peu plus tard.", ephemeral=True
+            )
         balance = await db.add_coins(interaction.guild_id, interaction.user.id, gain)
-        await db.execute(
-            "UPDATE users SET last_work=? WHERE guild_id=? AND user_id=?",
-            (now, interaction.guild_id, interaction.user.id),
-        )
         await interaction.response.send_message(
             f"🛠️ Tu as {random.choice(jobs)} et gagné **{gain}** {COIN} ! Solde : **{balance}** {COIN}"
         )

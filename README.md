@@ -79,9 +79,18 @@ Utilisation :
 ## 5. Structure
 
 ```
-bot.py            démarrage, chargement des modules
+bot.py            démarrage, chargement des modules (un module qui plante n'arrête pas le bot)
 config.py         lecture du .env
 db.py             base SQLite (fichier bot.db créé automatiquement)
+utils.py          réponses sans risque et messages d'erreur clairs
 cogs/             moderation, welcome, tickets, economy, roblox, verification, setup
 roblox/           script Lua pour ton jeu
+smoke_test.py     test de démarrage (GitHub le lance à chaque modification)
 ```
+
+## 6. Fiabilité
+
+- Un module qui plante au chargement est isolé : les autres restent en ligne, l'erreur est écrite dans les logs.
+- Si le port de l'API Roblox est déjà pris, le bot démarre quand même (sans l'API).
+- Chaque bouton, menu et formulaire répond par un message clair en cas d'erreur, jamais « l'interaction a échoué ».
+- `python smoke_test.py` vérifie en quelques secondes que tout se charge. Lance-le avant chaque mise à jour.

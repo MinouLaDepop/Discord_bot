@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+from utils import report_ui_error
 
 
 def slugify(name: str) -> str:
@@ -47,6 +48,7 @@ class OpenTicketView(discord.ui.View):
         ],
     )
     async def open_ticket(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
         db = self.bot.db
         guild = interaction.guild
         kind = select.values[0]
@@ -59,7 +61,7 @@ class OpenTicketView(discord.ui.View):
         if existing:
             channel = guild.get_channel(existing["channel_id"])
             if channel:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"Tu as déjà un ticket ouvert : {channel.mention}", ephemeral=True
                 )
                 return await self._reset_panel(interaction)
@@ -72,7 +74,7 @@ class OpenTicketView(discord.ui.View):
         category = guild.get_channel(category_id) if category_id else None
         support_role = guild.get_role(support_id) if support_id else None
         if not category:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "Le système de tickets n'est pas configuré (`/ticket-config`).", ephemeral=True
             )
 
@@ -101,9 +103,15 @@ class OpenTicketView(discord.ui.View):
                 reason="Ouverture de ticket",
             )
         except discord.Forbidden:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "Je n'ai pas la permission de créer des salons dans cette catégorie.",
                 ephemeral=True,
+            )
+        except discord.HTTPException:
+            # Par exemple : catégorie pleine (50 salons max) ou limite de salons du serveur
+            return await interaction.followup.send(
+                "Impossible de créer le ticket pour l'instant (catégorie pleine ?). "
+                "Préviens le staff.", ephemeral=True,
             )
 
         await db.execute(
@@ -127,10 +135,11 @@ class OpenTicketView(discord.ui.View):
             view=CloseTicketView(self.bot),
             allowed_mentions=discord.AllowedMentions(users=True, roles=True),
         )
-        await interaction.response.send_message(
-            f"✅ Ton ticket est prêt : {channel.mention}", ephemeral=True
-        )
+        await interaction.followup.send(f"✅ Ton ticket est prêt : {channel.mention}", ephemeral=True)
         await self._reset_panel(interaction)
+
+    async def on_error(self, interaction, error, item):
+        await report_ui_error(interaction, error, "ticket:open")
 
 
 class CloseTicketView(discord.ui.View):
@@ -163,19 +172,23 @@ class CloseTicketView(discord.ui.View):
                 "Seul l'auteur du ticket ou l'équipe peut le fermer.", ephemeral=True
             )
 
-        await interaction.response.send_message("🔒 Fermeture du ticket dans 5 secondes…")
+        # On marque d'abord le ticket comme fermé : un double-clic ne le ferme pas deux fois
         await db.execute("UPDATE tickets SET closed=1 WHERE channel_id=?", (channel.id,))
+        await interaction.response.send_message("🔒 Fermeture du ticket dans 5 secondes…")
 
         # Transcript envoyé dans le salon de logs
         lines = []
-        async for msg in channel.history(limit=1000, oldest_first=True):
-            when = msg.created_at.strftime("%d/%m/%Y %H:%M")
-            content = msg.content or ""
-            if msg.attachments:
-                content += " " + " ".join(a.url for a in msg.attachments)
-            if msg.embeds and not content:
-                content = "[embed]"
-            lines.append(f"[{when}] {msg.author}: {content}")
+        try:
+            async for msg in channel.history(limit=1000, oldest_first=True):
+                when = msg.created_at.strftime("%d/%m/%Y %H:%M")
+                content = msg.content or ""
+                if msg.attachments:
+                    content += " " + " ".join(a.url for a in msg.attachments)
+                if msg.embeds and not content:
+                    content = "[embed]"
+                lines.append(f"[{when}] {msg.author}: {content}")
+        except discord.HTTPException:
+            lines.append("(historique incomplet : Discord n'a pas pu le lire en entier)")
         transcript = "\n".join(lines) or "(vide)"
 
         log_id = await db.get_int_setting(guild.id, "ticket_log")
@@ -198,6 +211,9 @@ class CloseTicketView(discord.ui.View):
             await channel.delete(reason=f"Ticket fermé par {interaction.user}")
         except discord.HTTPException:
             pass
+
+    async def on_error(self, interaction, error, item):
+        await report_ui_error(interaction, error, "ticket:close")
 
 
 class Tickets(commands.Cog):

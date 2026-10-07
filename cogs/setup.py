@@ -165,6 +165,13 @@ class ConfirmView(discord.ui.View):
                 content=f"❌ Discord a refusé une opération : `{exc}`. Relance la commande : "
                         "ce qui est déjà créé sera réutilisé.",
             )
+        except Exception:
+            # Erreur inattendue : on prévient au lieu de laisser « Création en cours » affiché
+            log.exception("Erreur inattendue pendant le setup")
+            return await interaction.edit_original_response(
+                content="❌ Une erreur inattendue est survenue. Relance `/setup-serveur` : "
+                        "ce qui est déjà créé sera réutilisé.",
+            )
         finally:
             self.cog.running.discard(guild.id)
         await interaction.edit_original_response(content=None, embed=embed)

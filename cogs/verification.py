@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+from utils import report_ui_error
 
 GAME_NAME = "Hatch a Mutant"
 
@@ -83,6 +84,9 @@ class VerifyModal(discord.ui.Modal, title="Vérification"):
     async def on_submit(self, interaction: discord.Interaction):
         await self.cog.check_answer(interaction, self.answer.value)
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        await report_ui_error(interaction, error, "verify:modal")
+
 
 class VerifyView(discord.ui.View):
     """Bouton persistant du salon #vérification."""
@@ -98,6 +102,9 @@ class VerifyView(discord.ui.View):
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog: Verification = self.bot.get_cog("Verification")
         await cog.on_click(interaction)
+
+    async def on_error(self, interaction, error, item):
+        await report_ui_error(interaction, error, "verify:start")
 
 
 class Verification(commands.Cog):
@@ -139,7 +146,10 @@ class Verification(commands.Cog):
                 f"Trop d'essais ratés. Réessaie <t:{int(locked)}:R>.", ephemeral=True
             )
 
-        min_days = int(await self.bot.db.get_setting(interaction.guild_id, "verify_min_age_days", "1"))
+        try:
+            min_days = int(await self.bot.db.get_setting(interaction.guild_id, "verify_min_age_days", "1"))
+        except ValueError:
+            min_days = 1
         age = discord.utils.utcnow() - member.created_at
         if age.total_seconds() < min_days * 86400:
             ready = int(member.created_at.timestamp() + min_days * 86400)

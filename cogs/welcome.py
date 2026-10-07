@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+from utils import report_ui_error
 
 DEFAULT_MESSAGE = "Bienvenue {user} sur **{server}** ! Tu es le membre n°{count} 🎉"
 
@@ -48,6 +49,9 @@ class RoleButton(
             await interaction.response.send_message(
                 "Je ne peux pas gérer ce rôle (il est au-dessus du mien).", ephemeral=True
             )
+
+    async def on_error(self, interaction, error):
+        await report_ui_error(interaction, error, "rolepanel")
 
 
 class Welcome(commands.Cog):
@@ -99,9 +103,12 @@ class Welcome(commands.Cog):
         template = await self.bot.db.get_setting(
             member.guild.id, "welcome_message", DEFAULT_MESSAGE
         )
-        text = template.format(
-            user=member.mention, server=member.guild.name, count=member.guild.member_count
-        )
+        values = dict(user=member.mention, server=member.guild.name, count=member.guild.member_count)
+        try:
+            text = template.format(**values)
+        except (KeyError, IndexError, ValueError):
+            text = DEFAULT_MESSAGE.format(**values)
+        text = text[:4000]
         embed = discord.Embed(description=text, color=config.COLOR_MAIN)
         embed.set_thumbnail(url=member.display_avatar.url)
         try:
@@ -179,8 +186,11 @@ class Welcome(commands.Cog):
         role5: discord.Role | None = None,
         description: str = "Clique sur un bouton pour obtenir ou retirer un rôle.",
     ):
-        roles = [r for r in (role1, role2, role3, role4, role5) if r]
-        too_high = [r.name for r in roles if r >= interaction.guild.me.top_role or r.managed]
+        roles = list({r.id: r for r in (role1, role2, role3, role4, role5) if r}.values())
+        too_high = [
+            r.name for r in roles
+            if r >= interaction.guild.me.top_role or r.managed or r.is_default()
+        ]
         if too_high:
             return await interaction.response.send_message(
                 "Je ne peux pas gérer ces rôles : " + ", ".join(too_high)

@@ -39,7 +39,9 @@ class Moderation(commands.Cog):
             return
         embed = discord.Embed(title=title, color=color, timestamp=discord.utils.utcnow())
         for name, value in fields.items():
-            embed.add_field(name=name.replace("_", " ").capitalize(), value=value, inline=True)
+            embed.add_field(
+                name=name.replace("_", " ").capitalize(), value=str(value)[:1024] or "—", inline=True
+            )
         try:
             await channel.send(embed=embed)
         except discord.HTTPException:
@@ -260,11 +262,11 @@ class Moderation(commands.Cog):
             return await interaction.response.send_message(
                 f"{membre.mention} n'a aucun avertissement.", ephemeral=True
             )
-        embed = discord.Embed(title=f"Avertissements de {membre}", color=config.COLOR_WARN)
+        embed = discord.Embed(title=f"Avertissements de {membre}"[:256], color=config.COLOR_WARN)
         for r in rows:
             embed.add_field(
                 name=f"#{r['id']} · <t:{int(r['created_at'])}:d>",
-                value=f"{r['reason']}\n*par <@{r['mod_id']}>*",
+                value=f"{str(r['reason'])[:900]}\n*par <@{r['mod_id']}>*",
                 inline=False,
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)

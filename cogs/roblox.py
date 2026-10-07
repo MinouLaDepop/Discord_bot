@@ -10,7 +10,7 @@ Chaque requête doit contenir l'en-tête  X-API-Key  (la clé du fichier .env).
 """
 import hmac
 import logging
-import random
+import secrets
 import string
 import time
 
@@ -21,6 +21,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
+from utils import NETWORK_ERRORS
 
 log = logging.getLogger("roblox")
 
@@ -60,8 +61,18 @@ class Roblox(commands.Cog):
             ]
         )
         self.runner = web.AppRunner(app)
-        await self.runner.setup()
-        await web.TCPSite(self.runner, config.API_HOST, config.API_PORT).start()
+        try:
+            await self.runner.setup()
+            await web.TCPSite(self.runner, config.API_HOST, config.API_PORT).start()
+        except OSError as exc:
+            # Port déjà pris, interdit... : le bot doit quand même démarrer sans l'API.
+            log.error(
+                "Impossible d'ouvrir l'API Roblox sur %s:%s (%s). Le bot continue sans elle : "
+                "change API_PORT dans le .env.", config.API_HOST, config.API_PORT, exc,
+            )
+            await self.runner.cleanup()
+            self.runner = None
+            return
         log.info("API Roblox à l'écoute sur %s:%s", config.API_HOST, config.API_PORT)
 
     async def cog_unload(self):
@@ -230,13 +241,14 @@ class Roblox(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         try:
             user = await self.lookup_user(pseudo_roblox)
-        except aiohttp.ClientError:
+        except NETWORK_ERRORS:
             return await interaction.followup.send("Impossible de joindre Roblox, réessaie plus tard.")
         if not user:
             return await interaction.followup.send("Joueur Roblox introuvable.")
 
-        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
         db = self.bot.db
+        await db.execute("DELETE FROM link_codes WHERE expires<?", (time.time(),))  # nettoyage
         await db.execute("DELETE FROM link_codes WHERE user_id=? AND guild_id=?", (interaction.user.id, interaction.guild_id))
         await db.execute(
             "INSERT INTO link_codes(code, guild_id, user_id, roblox_id, roblox_name, expires) "
@@ -273,7 +285,7 @@ class Roblox(commands.Cog):
         await interaction.response.defer()
         try:
             profile = await self.get_profile(row["roblox_id"])
-        except aiohttp.ClientError:
+        except NETWORK_ERRORS:
             profile = None
         if not profile:
             return await interaction.followup.send("Impossible de récupérer le profil Roblox.")
@@ -305,7 +317,7 @@ class Roblox(commands.Cog):
                 params={"universeIds": config.ROBLOX_UNIVERSE_ID},
             ) as resp:
                 data = (await resp.json()).get("data") or [] if resp.status == 200 else []
-        except aiohttp.ClientError:
+        except NETWORK_ERRORS:
             data = []
         if not data:
             return await interaction.followup.send("Impossible de récupérer les stats du jeu.")

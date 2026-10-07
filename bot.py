@@ -66,6 +66,11 @@ class MutantBot(commands.Bot):
                 guild = discord.Object(id=config.GUILD_ID)
                 self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
+                # Les commandes ont pu être enregistrées « globalement » avant que GUILD_ID
+                # soit renseigné. On vide alors la liste globale, sinon Discord affiche
+                # chaque commande en double (une fois globale, une fois pour le serveur).
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
             else:
                 await self.tree.sync()
             log.info("Commandes synchronisées.")

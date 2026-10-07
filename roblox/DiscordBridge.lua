@@ -14,6 +14,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
 local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
 
 local CONFIG = {
 	-- Adresse publique de ton bot, SANS slash final (ex: https://mon-bot.exemple.com)
@@ -22,6 +23,12 @@ local CONFIG = {
 	API_KEY = "REMPLACE-MOI",
 	-- ID du Game Pass « VIP » (celui que les joueurs achètent). 0 = VIP automatique désactivé.
 	VIP_GAMEPASS_ID = 0,
+	-- Toutes les combien de secondes le serveur donne signe de vie au bot (panneau « info serveur »)
+	HEARTBEAT_SECONDS = 30,
+	-- Quand /jeu maintenance est activé sur Discord : éjecter les joueurs (true) ou seulement l'afficher (false)
+	MAINTENANCE_KICK = true,
+	-- UserId des comptes qui peuvent jouer pendant une maintenance (toi, ton équipe), ex : { 123456, 789012 }
+	ADMIN_IDS = {},
 }
 
 -- Petit canal pour afficher des messages dans le chat du joueur
@@ -85,6 +92,54 @@ end
 function Bridge.setVip(player, active)
 	local data = request("POST", "/api/vip", { robloxId = player.UserId, active = active })
 	return data ~= nil and data.ok == true
+end
+
+-- Envoie un classement au bot : il s'affiche dans le salon « classement » de Discord.
+-- board   : identifiant court sans espace (ex : "mutants")
+-- title   : titre affiché (ex : "Mutants éclos")
+-- entries : { { userId = 123, name = "Bob", value = 4500 }, ... }  (les 10 meilleurs suffisent)
+function Bridge.pushLeaderboard(board, title, entries)
+	local list = {}
+	for _, e in ipairs(entries) do
+		table.insert(list, { robloxId = e.userId, name = e.name, value = e.value })
+	end
+	local data = request("POST", "/api/leaderboard", { board = board, title = title, entries = list })
+	return data ~= nil and data.ok == true
+end
+
+-- Classement GLOBAL automatique : lit un OrderedDataStore toutes les minutes et l'envoie au bot.
+-- Ton jeu doit enregistrer le score de chaque joueur dedans :
+--   store:SetAsync(tostring(player.UserId), score)      (store = DataStoreService:GetOrderedDataStore(nom))
+-- Exemple : _G.DiscordBridge.startLeaderboard("mutants", "Mutants éclos", "MutantsHatched")
+local nameCache = {}
+function Bridge.startLeaderboard(board, title, dataStoreName)
+	local store = game:GetService("DataStoreService"):GetOrderedDataStore(dataStoreName)
+	task.spawn(function()
+		while true do
+			local ok, pages = pcall(function()
+				return store:GetSortedAsync(false, 10)
+			end)
+			if ok then
+				local entries = {}
+				for _, item in ipairs(pages:GetCurrentPage()) do
+					local userId = tonumber(item.key)
+					if userId then
+						if not nameCache[userId] then
+							local nameOk, name = pcall(function()
+								return Players:GetNameFromUserIdAsync(userId)
+							end)
+							nameCache[userId] = nameOk and name or ("Joueur " .. userId)
+						end
+						table.insert(entries, { userId = userId, name = nameCache[userId], value = item.value })
+					end
+				end
+				Bridge.pushLeaderboard(board, title, entries)
+			else
+				warn("[DiscordBridge] Lecture du classement impossible : " .. tostring(pages))
+			end
+			task.wait(60)
+		end
+	end)
 end
 
 -- Récupère { linked, coins, level, xp, vip } du joueur
@@ -152,6 +207,61 @@ local function checkVip(player)
 		Bridge.setVip(player, true)
 	end
 end
+
+------------------------------------------------------------------
+-- Signe de vie du serveur + maintenance
+------------------------------------------------------------------
+local function isAdmin(player)
+	return table.find(CONFIG.ADMIN_IDS, player.UserId) ~= nil
+end
+
+local function kickForMaintenance(player, message)
+	if not isAdmin(player) then
+		player:Kick(message or "Le jeu est en maintenance, reviens bientôt !")
+	end
+end
+
+-- Tous les HEARTBEAT_SECONDS : le bot sait que ce serveur est vivant et combien de joueurs il contient.
+-- (Ignoré dans Studio et dans les serveurs privés, pour ne pas fausser les chiffres.)
+local function sendHeartbeat(closing)
+	if RunService:IsStudio() or game.PrivateServerId ~= "" then
+		return
+	end
+	local data = request("POST", "/api/heartbeat", {
+		jobId = game.JobId,
+		players = #Players:GetPlayers(),
+		maxPlayers = Players.MaxPlayers,
+		placeVersion = game.PlaceVersion,
+		closing = closing,
+	})
+	if data and data.maintenance and CONFIG.MAINTENANCE_KICK and not closing then
+		for _, player in ipairs(Players:GetPlayers()) do
+			kickForMaintenance(player, data.message)
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		sendHeartbeat(false)
+		task.wait(CONFIG.HEARTBEAT_SECONDS)
+	end
+end)
+
+game:BindToClose(function()
+	sendHeartbeat(true) -- le serveur se ferme : on le retire du panneau tout de suite
+end)
+
+-- Un joueur qui arrive pendant une maintenance est éjecté tout de suite
+Players.PlayerAdded:Connect(function(player)
+	if not CONFIG.MAINTENANCE_KICK or RunService:IsStudio() or isAdmin(player) then
+		return
+	end
+	local data = request("GET", "/api/status")
+	if data and data.maintenance then
+		kickForMaintenance(player, data.message)
+	end
+end)
 
 -- À l'arrivée du joueur (couvre ceux qui ont acheté avant, ou pendant que le bot était éteint)
 Players.PlayerAdded:Connect(checkVip)

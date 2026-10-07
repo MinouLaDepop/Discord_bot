@@ -67,6 +67,8 @@ LAYOUT = [
         ("game_chat", "🎮・discussion-jeu", "text", "member_rw", "Parle du jeu, échange des astuces."),
         ("game_share", "🐾・mutants-partagés", "text", "member_rw", "Montre tes plus beaux mutants !"),
         ("game_news", "🏆・annonces-jeu", "text", "member_ro", "Annonces automatiques envoyées par le jeu."),
+        ("game_info", "📊・info-serveur", "text", "member_ro", "L'état du jeu en direct : ouvert, joueurs en ligne, serveurs..."),
+        ("game_top", "🥇・classement", "text", "member_ro", "Les meilleurs joueurs du jeu, en direct."),
     ]),
     ("support", "🎫 SUPPORT", [
         ("tickets_panel", "🎫・ouvrir-un-ticket", "text", "member_ro", "Besoin d'aide ? Ouvre un ticket privé."),
@@ -371,6 +373,13 @@ class Setup(commands.Cog):
         await db.set_setting(gid, "ticket_log", channels["ticketlog"].id)
         await db.set_setting(gid, "welcome_channel", channels["welcome"].id)
         await db.set_setting(gid, "roblox_channel", channels["game_news"].id)
+        # Panneaux en direct et événements : on ne remplace pas un salon que tu as déjà choisi toi-même
+        for key, channel_key in (
+            ("live_info_channel", "game_info"), ("live_top_channel", "game_top"),
+            ("event_channel", "events"),
+        ):
+            if not await db.get_int_setting(gid, key):
+                await db.set_setting(gid, key, channels[channel_key].id)
 
         # Panneaux
         await self.post_once(guild, channels["rules"], "rules", embed=build_rules_embed(word))

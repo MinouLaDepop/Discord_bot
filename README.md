@@ -53,6 +53,8 @@ Pour qu'il tourne 24h/24, héberge-le sur un VPS (ou un hébergeur de bots).
 | Économie | `/rank` `/classement` `/solde` `/daily` `/travail` `/payer` `/boutique` `/acheter` `/inventaire` `/niveau-role` + admin : `/boutique-ajouter` `/boutique-retirer` `/coins-donner` |
 | Roblox | `/roblox lier` `/roblox delier` `/roblox profil` `/roblox jeu` `/roblox salon` |
 | Avantages | `/vip donner` `/vip retirer` `/vip liste` `/avantages-sync` |
+| Jeu en direct | `/jeu installer` `/jeu salon-infos` `/jeu salon-classement` `/jeu maintenance` `/jeu actualiser` |
+| Événements | `/event creer` `/event liste` `/event annuler` `/event salon` |
 
 Démarrage conseillé sur le serveur : `/logs`, `/accueil salon`, `/ticket-config` puis `/ticket-panel`, `/roblox salon`.
 
@@ -98,7 +100,27 @@ smoke_test.py     test de démarrage (GitHub le lance à chaque modification)
 
 **Côté jeu (Roblox Studio)** : dans le script `DiscordBridge` (ServerScriptService), mets l'ID de ton Game Pass VIP dans `VIP_GAMEPASS_ID`. Tout joueur qui possède le pass (acheté avant ou pendant la partie) reçoit alors le rôle. Pour donner ou retirer le VIP depuis tes propres scripts : `_G.DiscordBridge.setVip(player, true)` / `setVip(player, false)`.
 
-## 7. Fiabilité
+## 7. Jeu en direct : info serveur, classement, événements
+
+**Créer les salons** : tape `/jeu installer`. Le bot crée `📊・info-serveur` et `🥇・classement` (lecture seule pour les membres) et les remplit. Ils se mettent à jour tout seuls chaque minute. Tu as déjà tes propres salons ? Utilise `/jeu salon-infos` et `/jeu salon-classement` à la place. (`/setup-serveur` les crée aussi.)
+
+**📊 Info serveur** : statut (🟢 ouvert / 🔧 maintenance), joueurs en ligne, serveurs actifs et leur remplissage, visites, favoris, avis positifs, dernière mise à jour du jeu, prochain événement, bouton « Jouer ».
+- Visites, favoris et avis viennent de l'API publique de Roblox : il faut renseigner `ROBLOX_UNIVERSE_ID` dans `.env`.
+- Joueurs en direct et serveurs actifs viennent du jeu (signe de vie toutes les 30 s) : le script `DiscordBridge` doit être installé et le bot joignable depuis Internet (voir partie 4).
+- `/jeu maintenance actif:True message:...` affiche la maintenance et, si `MAINTENANCE_KICK` est à `true` dans le script, éjecte les joueurs (sauf les `ADMIN_IDS`). `actif:False` rouvre le jeu.
+
+**🥇 Classement** : le jeu envoie ses meilleurs joueurs au bot. Dans Roblox Studio, dans la fenêtre **Explorateur**, clic droit sur **ServerScriptService** > **Insérer un objet** > **Script**, puis :
+
+```lua
+-- Classement global lu dans un OrderedDataStore (mis à jour chaque minute)
+_G.DiscordBridge.startLeaderboard("mutants", "Mutants éclos", "MutantsHatched")
+```
+
+Ton jeu doit enregistrer le score de chaque joueur dans cet OrderedDataStore : `store:SetAsync(tostring(player.UserId), score)`. Sans OrderedDataStore, envoie toi-même la liste avec `_G.DiscordBridge.pushLeaderboard("mutants", "Mutants éclos", { {userId = 123, name = "Bob", value = 4500}, ... })`. Jusqu'à 5 classements différents (3 affichés). Les joueurs qui ont lié leur compte (`/roblox lier`) apparaissent avec leur pseudo Discord. Un « Top Discord » (niveaux) est affiché en dessous.
+
+**🎉 Événements avec compte à rebours** : `/event creer titre:... date:25/12/2026 heure:20h30` (heure de Paris). Le bot publie un message dans le salon des événements avec le décompte (« Début dans 2 j 03 h 15 min »), mis à jour chaque minute. Au départ, il mentionne le rôle 🎉 Événements, le message passe en « EN COURS » puis « Terminé ». `/event liste` et `/event annuler numero:...` pour gérer. Le prochain événement apparaît aussi dans l'info serveur. Salon : `/event salon` (sinon celui de `/setup-serveur`).
+
+## 8. Fiabilité
 
 - Un module qui plante au chargement est isolé : les autres restent en ligne, l'erreur est écrite dans les logs.
 - Si le port de l'API Roblox est déjà pris, le bot démarre quand même (sans l'API).

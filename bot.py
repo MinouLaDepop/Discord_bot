@@ -21,6 +21,8 @@ COGS = [
     "cogs.roblox",
     "cogs.verification",
     "cogs.perks",
+    "cogs.live",
+    "cogs.events",
     "cogs.setup",
 ]
 

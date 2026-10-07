@@ -7,6 +7,11 @@ Le bot ouvre une petite API HTTP que ton jeu Roblox appelle (via HttpService) :
   POST /api/coins           { robloxId, amount, reason } -> ajoute/retire des pièces
   POST /api/event           { title, message, color }   -> poste un embed dans Discord
   POST /api/vip             { robloxId, active }        -> donne/retire le rôle VIP Discord
+  POST /api/heartbeat       { jobId, players, maxPlayers, placeVersion, closing }
+                            -> « signe de vie » d'un serveur du jeu (panneau info serveur)
+  POST /api/leaderboard     { board, title, entries:[{robloxId, name, value}] }
+                            -> met à jour le classement affiché dans Discord
+  GET  /api/status          -> { maintenance, message }
 Chaque requête doit contenir l'en-tête  X-API-Key  (la clé du fichier .env).
 """
 import hmac
@@ -60,6 +65,9 @@ class Roblox(commands.Cog):
                 web.post("/api/coins", self.api_coins),
                 web.post("/api/event", self.api_event),
                 web.post("/api/vip", self.api_vip),
+                web.post("/api/heartbeat", self.api_heartbeat),
+                web.post("/api/leaderboard", self.api_leaderboard),
+                web.get("/api/status", self.api_status),
             ]
         )
         self.runner = web.AppRunner(app)
@@ -235,6 +243,46 @@ class Roblox(commands.Cog):
             return web.json_response({"ok": False, "error": "perks_unavailable"}, status=503)
         result = await perks.set_roblox_vip(config.GUILD_ID, roblox_id, active)
         return web.json_response({"ok": True, **result})
+
+    async def api_heartbeat(self, request: web.Request):
+        data = await self.read_json(request)
+        live = self.bot.get_cog("Live")
+        if live is None:
+            return web.json_response({"ok": False, "error": "live_unavailable"}, status=503)
+        job_id = str(data.get("jobId") or "")[:64]
+        try:
+            players = int(data.get("players", 0))
+            max_players = int(data.get("maxPlayers", 0))
+            version = int(data.get("placeVersion", 0))
+        except (TypeError, ValueError):
+            return web.json_response({"ok": False, "error": "bad_params"}, status=400)
+        if not job_id:
+            return web.json_response({"ok": False, "error": "bad_job_id"}, status=400)
+        if not live.record_heartbeat(job_id, players, max_players, version, data.get("closing") is True):
+            return web.json_response({"ok": False, "error": "too_many_servers"}, status=429)
+        # Le jeu en profite pour savoir s'il doit passer en maintenance
+        maintenance, message = await live.maintenance_state(config.GUILD_ID)
+        return web.json_response({"ok": True, "maintenance": maintenance, "message": message})
+
+    async def api_leaderboard(self, request: web.Request):
+        data = await self.read_json(request)
+        live = self.bot.get_cog("Live")
+        if live is None:
+            return web.json_response({"ok": False, "error": "live_unavailable"}, status=503)
+        error = await live.save_leaderboard(
+            config.GUILD_ID, data.get("board"), data.get("title"), data.get("entries")
+        )
+        if error:
+            status = 409 if error == "too_many_boards" else 400
+            return web.json_response({"ok": False, "error": error}, status=status)
+        return web.json_response({"ok": True})
+
+    async def api_status(self, request: web.Request):
+        live = self.bot.get_cog("Live")
+        if live is None:
+            return web.json_response({"ok": True, "maintenance": False, "message": ""})
+        maintenance, message = await live.maintenance_state(config.GUILD_ID)
+        return web.json_response({"ok": True, "maintenance": maintenance, "message": message})
 
     # --- Appels à l'API publique de Roblox -------------------------------
     async def lookup_user(self, username: str):

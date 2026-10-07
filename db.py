@@ -1,3 +1,5 @@
+import asyncio
+
 import aiosqlite
 
 SCHEMA = """
@@ -83,6 +85,35 @@ CREATE TABLE IF NOT EXISTS vip (
     PRIMARY KEY (guild_id, kind, ident)
 );
 
+-- Classements envoyés par le jeu (une ligne par place dans un classement)
+CREATE TABLE IF NOT EXISTS leaderboard (
+    guild_id INTEGER NOT NULL,
+    board TEXT NOT NULL,
+    title TEXT NOT NULL,
+    pos INTEGER NOT NULL,
+    roblox_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, board, pos)
+);
+
+-- Événements avec compte à rebours (status : scheduled, started, done, cancelled)
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    starts_at REAL NOT NULL,
+    duration_min INTEGER NOT NULL DEFAULT 60,
+    channel_id INTEGER,
+    message_id INTEGER,
+    ping INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    created_by INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_guild ON events(guild_id, status, starts_at);
 CREATE INDEX IF NOT EXISTS idx_users_roblox ON users(guild_id, roblox_id);
 CREATE INDEX IF NOT EXISTS idx_users_level ON users(guild_id, level DESC, xp DESC);
 CREATE INDEX IF NOT EXISTS idx_users_coins ON users(guild_id, coins DESC);
@@ -100,6 +131,8 @@ class Database:
     def __init__(self, path: str):
         self.path = path
         self.conn: aiosqlite.Connection | None = None
+        # Une seule opération à la fois : une lecture ne tombe jamais au milieu d'une écriture
+        self._lock = asyncio.Lock()
 
     async def connect(self):
         self.conn = await aiosqlite.connect(self.path)
@@ -116,17 +149,40 @@ class Database:
 
     # --- Requêtes de base -------------------------------------------------
     async def execute(self, query: str, params: tuple = ()):
-        cur = await self.conn.execute(query, params)
-        await self.conn.commit()
-        return cur
+        async with self._lock:
+            cur = await self.conn.execute(query, params)
+            await self.conn.commit()
+            return cur
 
     async def fetchone(self, query: str, params: tuple = ()):
-        cur = await self.conn.execute(query, params)
-        return await cur.fetchone()
+        async with self._lock:
+            cur = await self.conn.execute(query, params)
+            return await cur.fetchone()
 
     async def fetchall(self, query: str, params: tuple = ()):
-        cur = await self.conn.execute(query, params)
-        return await cur.fetchall()
+        async with self._lock:
+            cur = await self.conn.execute(query, params)
+            return await cur.fetchall()
+
+    async def replace_leaderboard(
+        self, guild_id: int, board: str, title: str, entries: list[dict], now: float
+    ):
+        """Remplace d'un seul bloc un classement (jamais visible à moitié vide)."""
+        rows = [
+            (guild_id, board, title, pos, e["roblox_id"], e["name"], e["value"], now)
+            for pos, e in enumerate(entries, start=1)
+        ]
+        async with self._lock:
+            await self.conn.execute(
+                "DELETE FROM leaderboard WHERE guild_id=? AND board=?", (guild_id, board)
+            )
+            if rows:
+                await self.conn.executemany(
+                    "INSERT INTO leaderboard(guild_id, board, title, pos, roblox_id, name, value, "
+                    "updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                    rows,
+                )
+            await self.conn.commit()
 
     # --- Paramètres par serveur ------------------------------------------
     async def get_setting(self, guild_id: int, key: str, default=None):

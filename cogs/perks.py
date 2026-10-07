@@ -226,9 +226,23 @@ class Perks(commands.Cog):
             await self._guard("VIP à l'arrivée", self.sync_vip(member.guild, member.id))
 
     # --- Vérification globale --------------------------------------------
+    async def ensure_roles(self, guild: discord.Guild) -> tuple[list[str], list[str]]:
+        """Crée les rôles Booster et VIP s'ils n'existent pas encore (visibles dès le départ).
+        Retourne (rôles créés, rôles impossibles à créer)."""
+        created, failed = [], []
+        for key, (name, _color, _hoist) in SPECS.items():
+            if await self.get_role(guild, key, create=False):
+                continue
+            if await self.get_role(guild, key, create=True):
+                created.append(name)
+            else:
+                failed.append(name)
+        return created, failed
+
     async def sync_guild(self, guild: discord.Guild) -> dict:
-        """Rattrape ce qui s'est passé pendant que le bot était éteint."""
+        """Crée les rôles manquants et rattrape ce qui s'est passé pendant que le bot était éteint."""
         done = {"booster": 0, "vip": 0}
+        done["created"], done["failed"] = await self.ensure_roles(guild)
         booster_role = await self.get_role(guild, "booster", create=False)
         for member in guild.members:
             if member.bot:
@@ -261,11 +275,19 @@ class Perks(commands.Cog):
     async def sync_command(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         done = await self.sync_guild(interaction.guild)
-        await interaction.followup.send(
+        lines = []
+        if done["created"]:
+            lines.append("🆕 Rôles créés : " + ", ".join(done["created"]))
+        if done["failed"]:
+            lines.append(
+                "⚠️ Impossible de créer : " + ", ".join(done["failed"])
+                + ". Il me faut la permission **Gérer les rôles**."
+            )
+        lines.append(
             f"✅ Vérification terminée : {done['booster']} booster(s) mis à jour, "
-            f"{done['vip']} VIP vérifié(s).",
-            ephemeral=True,
+            f"{done['vip']} VIP vérifié(s)."
         )
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     # --- Commandes VIP ---------------------------------------------------
     @vip.command(name="donner", description="Donne le VIP à un membre (sans achat dans le jeu)")

@@ -10,7 +10,9 @@ DB_PATH = os.getenv("DB_PATH", "bot.db")
 
 API_KEY = os.getenv("API_KEY", "")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = int(os.getenv("API_PORT") or 8080)
+# Les hébergeurs (bot-hosting, Railway...) imposent souvent le port via SERVER_PORT :
+# on le suit automatiquement, sans rien avoir à régler à la main.
+API_PORT = int(os.getenv("API_PORT") or os.getenv("SERVER_PORT") or 8080)
 ROBLOX_UNIVERSE_ID = int(os.getenv("ROBLOX_UNIVERSE_ID") or 0)
 
 BOT_STATUS = os.getenv("BOT_STATUS", "Hatch a Mutant")

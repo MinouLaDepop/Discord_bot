@@ -120,7 +120,28 @@ Ton jeu doit enregistrer le score de chaque joueur dans cet OrderedDataStore : `
 
 **🎉 Événements avec compte à rebours** : `/event creer titre:... date:25/12/2026 heure:20h30` (heure de Paris). Le bot publie un message dans le salon des événements avec le décompte (« Début dans 2 j 03 h 15 min »), mis à jour chaque minute. Au départ, il mentionne le rôle 🎉 Événements, le message passe en « EN COURS » puis « Terminé ». `/event liste` et `/event annuler numero:...` pour gérer. Le prochain événement apparaît aussi dans l'info serveur. Salon : `/event salon` (sinon celui de `/setup-serveur`).
 
-## 8. Fiabilité
+## 8. Héberger le bot 24h/24
+
+GitHub **stocke** le code, il ne le fait pas tourner. Pour que le bot soit en ligne en permanence, il faut un hébergeur. Deux solutions :
+
+**A. Hébergeur relié à GitHub (recommandé : plus de mise à jour à faire à la main)**
+
+Sur [Render](https://render.com) ou [Railway](https://railway.app) : connecte ton compte GitHub, choisis le dépôt `MinouLaDepop/Discord_bot`, et prends un service de type **Worker** (pas « Web »), avec :
+
+- commande d'installation : `pip install -r requirements.txt`
+- commande de démarrage : `python bot.py`
+
+Puis ajoute les variables d'environnement (l'équivalent du fichier `.env`) : `DISCORD_TOKEN`, `GUILD_ID`, `API_KEY`, `ROBLOX_UNIVERSE_ID`. Le fichier `render.yaml` de ce dépôt contient déjà ces réglages.
+
+Avec `autoDeploy`, chaque modification envoyée sur GitHub relance le bot à jour automatiquement. Attention : les workers de Render sont payants ; Railway offre un crédit d'essai.
+
+**B. Panneau d'hébergement de bots (bot-hosting.net, Pella, Sparked…)**
+
+Ces panneaux sont souvent gratuits. Dans le gestionnaire de fichiers du panneau, envoie le contenu du dépôt (ou utilise le bouton Git s'il existe), règle la commande de démarrage sur `python bot.py`, crée le fichier `.env`, puis clique sur **Restart**. Ici la mise à jour n'est pas automatique : après chaque modification, il faut réenvoyer les fichiers et redémarrer.
+
+⚠️ **Un seul bot à la fois.** Si deux copies du bot tournent en même temps (par exemple une ancienne sur un PC et une nouvelle chez l'hébergeur), elles répondent toutes les deux et le serveur devient incohérent. Arrête l'ancienne avant de lancer la nouvelle.
+
+## 9. Fiabilité
 
 - Un module qui plante au chargement est isolé : les autres restent en ligne, l'erreur est écrite dans les logs.
 - Si le port de l'API Roblox est déjà pris, le bot démarre quand même (sans l'API).

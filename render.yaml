@@ -1,0 +1,27 @@
+# Déploiement automatique sur Render (https://render.com).
+# À chaque fois que le code change sur GitHub, Render réinstalle et relance le bot tout seul.
+services:
+  - type: worker
+    name: hatch-a-mutant-bot
+    runtime: python
+    plan: starter          # les "background workers" de Render ne sont pas gratuits
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    autoDeploy: true
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false        # à remplir dans le panneau Render (secret)
+      - key: GUILD_ID
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: ROBLOX_UNIVERSE_ID
+        sync: false
+      - key: BOT_STATUS
+        value: Hatch a Mutant
+      - key: DB_PATH
+        value: /var/data/bot.db
+    disk:                  # garde la base de données entre deux redémarrages
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

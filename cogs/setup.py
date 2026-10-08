@@ -21,6 +21,7 @@ log = logging.getLogger("setup")
 
 # clé, nom, couleur, permissions, affiché séparément, mentionnable
 ROLE_SPECS = [
+    ("founder", "👑 Fondateur", 0xF1C40F, {}, True, False),
     ("admin", "🛡️ Admin", 0xE74C3C, dict(
         manage_channels=True, manage_roles=True, manage_messages=True, kick_members=True,
         ban_members=True, moderate_members=True, view_audit_log=True, manage_nicknames=True,
@@ -42,6 +43,7 @@ STAFF_KEYS = ("admin", "mod", "support")
 CATEGORY_KIND = {
     "gate": "gate_ro", "info": "member_ro", "community": "member_ro", "game": "member_ro",
     "support": "member_ro", "voice": "voice", "staff": "staff", "tickets": "staff",
+    "founder": "founder",
 }
 
 # (clé catégorie, nom, [(clé salon, nom, type, permissions, description)])
@@ -84,6 +86,10 @@ LAYOUT = [
         ("modlog", "📋・logs-modération", "text", "staff", "Sanctions et vérifications."),
         ("ticketlog", "🗂️・logs-tickets", "text", "staff", "Transcripts des tickets fermés."),
         ("botstaff", "🤖・bot-staff", "text", "staff", "Commandes d'administration du bot."),
+    ]),
+    ("founder", "👑 FONDATEUR", [
+        ("founder_chat", "💬・discussion-fonda", "text", "founder", "Discussion privée des fondateurs."),
+        ("founder_voice", "🔊 Vocal Fonda", "voice", "founder", ""),
     ]),
     ("tickets", "📂 TICKETS", []),  # les tickets ouverts atterrissent ici
 ]
@@ -128,6 +134,11 @@ def overwrites_for(kind: str, guild: discord.Guild, roles: dict) -> dict:
                         use_voice_activation=True)
         for r in staff:
             ow[r] = PO(view_channel=True, connect=True, speak=True, stream=True)
+    elif kind == "founder":
+        # Uniquement les fondateurs : même le staff n'y a pas accès
+        ow[everyone] = PO(view_channel=False)
+        ow[roles["founder"]] = PO(**staff_chat, connect=True, speak=True, stream=True,
+                                  use_voice_activation=True)
     else:  # staff
         ow[everyone] = PO(view_channel=False)
         for r in staff:
@@ -223,14 +234,14 @@ class Setup(commands.Cog):
         )
         embed.add_field(
             name="Rôles",
-            value="🛡️ Admin · 🔨 Modérateur · 🎧 Support · 💎 Booster · 👑 VIP · ✅ Membre · "
+            value="👑 Fondateur · 🛡️ Admin · 🔨 Modérateur · 🎧 Support · 💎 Booster · 👑 VIP · ✅ Membre · "
                   "📢 Annonces · 🎉 Événements · 🔔 Mises à jour",
             inline=False,
         )
         embed.add_field(
             name="Salons",
             value="🚪 Accueil (règles + vérification)\n📢 Informations\n💬 Communauté\n"
-                  "🎮 Hatch a Mutant\n🎫 Support (tickets)\n🔊 Vocal\n🛡️ Staff (logs)",
+                  "🎮 Hatch a Mutant\n🎫 Support (tickets)\n🔊 Vocal\n🛡️ Staff (logs)\n👑 Fondateur (privé)",
             inline=False,
         )
         embed.add_field(
@@ -336,6 +347,11 @@ class Setup(commands.Cog):
 
         roles = {}
         for key, name, color, perms, hoist, mentionable in ROLE_SPECS:
+            if key == "founder" and not await db.get_int_setting(guild.id, "setup_role_founder"):
+                # Réutilise un rôle « fondateur » déjà présent sur le serveur
+                found = discord.utils.find(lambda r: "fondateur" in r.name.lower(), guild.roles)
+                if found:
+                    await db.set_setting(guild.id, "setup_role_founder", found.id)
             role, new = await self.ensure_role(guild, key, name, color, perms, hoist, mentionable)
             roles[key] = role
             if new:

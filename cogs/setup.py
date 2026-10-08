@@ -87,11 +87,11 @@ LAYOUT = [
         ("ticketlog", "🗂️・logs-tickets", "text", "staff", "Transcripts des tickets fermés."),
         ("botstaff", "🤖・bot-staff", "text", "staff", "Commandes d'administration du bot."),
     ]),
+    ("tickets", "📂 TICKETS", []),  # les tickets ouverts atterrissent ici
     ("founder", "👑 FONDATEUR", [
         ("founder_chat", "💬・discussion-fonda", "text", "founder", "Discussion privée des fondateurs."),
         ("founder_voice", "🔊 Vocal Fonda", "voice", "founder", ""),
     ]),
-    ("tickets", "📂 TICKETS", []),  # les tickets ouverts atterrissent ici
 ]
 
 
@@ -371,6 +371,15 @@ class Setup(commands.Cog):
                 )
                 channels[key] = channel
                 created_channels += int(new)
+
+        # La catégorie Fondateur reste toujours tout en bas du serveur
+        try:
+            founder_cat = channels["founder"]
+            last = max(c.position for c in guild.categories)
+            if founder_cat.position < last:
+                await founder_cat.edit(position=last, reason="Fondateur tout en bas")
+        except discord.HTTPException:
+            log.warning("Impossible de placer la catégorie Fondateur en bas")
 
         # Mot de passe de vérification et réglages par défaut
         word = await db.get_setting(guild.id, "verify_word")
